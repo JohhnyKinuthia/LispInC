@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#define LASSERT(args, cond, err)                                               \
+  if (!(cond)) {                                                               \
+    lval_del(args);                                                            \
+    return lerr(err);                                                          \
+  }
 /*if we are compiling on Windows compile these functions*/
 #ifdef _WIN32
 
@@ -36,13 +41,22 @@ typedef struct lval {
   struct lval **cell;
 } lval;
 
-enum { LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR };
+enum { LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR };
 
 /*Construct a pointer to a new Number lval*/
 lval *lnum(long val) {
   lval *v = malloc(sizeof(lval));
   v->type = LVAL_NUM;
   v->num = val;
+  return v;
+}
+
+/*Construct a pointer to a new Qexpr lval*/
+lval *lqexpr() {
+  lval *v = malloc(sizeof(lval));
+  v->type = LVAL_QEXPR;
+  v->count = 0;
+  v->cell = NULL;
   return v;
 }
 
@@ -83,6 +97,7 @@ void lval_del(lval *v) {
   case LVAL_SYM:
     free(v->sym);
     break;
+  case LVAL_QEXPR:
   case LVAL_SEXPR:
 
     /*If Sexpr delete all elements inside*/
@@ -109,7 +124,7 @@ lval *lval_add(lval *v, lval *x) {
   v->cell[v->count - 1] = x;
   return v;
 }
-
+void lval_println(lval *);
 lval *lval_read(mpc_ast_t *t) {
   if (strstr(t->tag, "number")) {
     return lval_read_num(t);
@@ -120,6 +135,9 @@ lval *lval_read(mpc_ast_t *t) {
 
   /*If root (>) or sexpr then create empty list*/
   lval *x = NULL;
+  if (strstr(t->tag, "qexpr")) {
+    x = lqexpr();
+  }
   if (strcmp(t->tag, ">") == 0) {
     x = lsexpr();
   }
@@ -132,6 +150,12 @@ lval *lval_read(mpc_ast_t *t) {
       continue;
     }
     if (strcmp(t->children[i]->contents, ")") == 0) {
+      continue;
+    }
+    if (strcmp(t->children[i]->contents, "{") == 0) {
+      continue;
+    }
+    if (strcmp(t->children[i]->contents, "}") == 0) {
       continue;
     }
     if (strcmp(t->children[i]->tag, "regex") == 0) {
@@ -167,11 +191,15 @@ void lval_print(lval *val) {
   case LVAL_SYM:
     printf("%s", val->sym);
     break;
+  case LVAL_QEXPR:
+    lval_expr_print(val, "{ ", " }");
+    break;
   case LVAL_SEXPR:
     lval_expr_print(val, "( ", " )");
     break;
   default:
     printf("Error: Unknown value!");
+    break;
   }
 }
 
@@ -195,17 +223,18 @@ int main(int argc, char **argv) {
   mpc_parser_t *Number = mpc_new("number");
   mpc_parser_t *Symbol = mpc_new("symbol");
   mpc_parser_t *Sexpr = mpc_new("sexpr");
+  mpc_parser_t *Qexpr = mpc_new("qexpr");
   mpc_parser_t *Expr = mpc_new("expr");
   mpc_parser_t *Lispy = mpc_new("lispy");
-  mpca_lang(MPCA_LANG_DEFAULT,
-            "						\
+  mpca_lang(MPCA_LANG_DEFAULT, "						\
 			number: /-?[0-9]+/; 				\
-			symbol: '+' | '-' | '/' | '*' | '%';  \
+			symbol: '+' | '-' | '/' | '*' | '%' \"head\" | \"tail\" | \"join\" | \"eval\";  \
 			sexpr: '(' <expr>* ')' ;			\
-			expr: <number> | <symbol> | <sexpr> ;	\
+			qexpr: '{' <expr>* '}' ;									\
+			expr: <number> | <symbol> | <sexpr> | <qexpr> ;	\
 			lispy: /^/ <expr>* /$/; 		\
 			",
-            Number, Symbol, Sexpr, Expr, Lispy);
+            Number, Symbol, Sexpr, Qexpr, Expr, Lispy);
   puts("Lispy Version 0.0.0.0.1");
   puts("Press Ctrl+c to exit\n");
 
@@ -214,8 +243,9 @@ int main(int argc, char **argv) {
     add_history(input);
     mpc_result_t r;
     if (mpc_parse("<stdin>", input, Lispy, &r)) {
-      // lval result = eval(r.output);
-      lval *result = lval_eval(lval_read(r.output));
+      mpc_ast_print(r.output);
+      lval *result = lval_read(r.output);
+      // lval *result = lval_eval(lval_read(r.output));
       lval_println(result);
       lval_del(result);
       mpc_ast_delete(r.output);
@@ -226,7 +256,7 @@ int main(int argc, char **argv) {
     free(input);
   }
   /*Undefine and Delete our Parsers*/
-  mpc_cleanup(5, Number, Symbol, Sexpr, Expr, Lispy);
+  mpc_cleanup(6, Number, Symbol, Sexpr, Qexpr, Expr, Lispy);
   return 0;
 }
 
@@ -272,7 +302,7 @@ lval *builtin_op(lval *v, char *sym) {
 
   /* Make sure we have operands*/
   if (v->count == 0) {
-	lval_del(v);
+    lval_del(v);
     return lerr("Operator has no operands");
   }
 
@@ -293,29 +323,29 @@ lval *builtin_op(lval *v, char *sym) {
   while (v->count > 0) {
     lval *y = lval_pop(v, 0);
     if (strcmp(sym, "+") == 0) {
-      x->num+=y->num;
+      x->num += y->num;
     }
     if (strcmp(sym, "*") == 0) {
-      x->num*=y->num;
+      x->num *= y->num;
     }
     if (strcmp(sym, "/") == 0) {
       if (y->num == 0)
         return lerr("Division by zero");
       else
-        x->num/=y->num;
+        x->num /= y->num;
     }
     if (strcmp(sym, "-") == 0) {
-      x->num-=y->num;
+      x->num -= y->num;
     }
     if (strcmp(sym, "%") == 0) {
       if (y->num == 0)
         return lerr("Division by zero");
       else
-        x->num%=y->num;
+        x->num %= y->num;
     }
     lval_del(y);
   }
-  
+
   lval_del(v);
   return x;
 }
