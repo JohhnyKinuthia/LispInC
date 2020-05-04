@@ -16,7 +16,7 @@
   if (!(args->cell[index]->type == expected)) {                                \
     lval *err =                                                                \
         lerr("Function '%s' passed incorrect type: %s\nExpected QExpressions", \
-             func, enum_to_str(a->cell[0]->type), enum_to_str(expected));      \
+             func, ltype_name(a->cell[0]->type), ltype_name(expected));      \
     lval_del(args);                                                            \
     return err;                                                                \
   }
@@ -80,7 +80,7 @@ struct lenv {
 
 enum { LVAL_NUM, LVAL_FUN, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR };
 
-char *enum_to_str(int val) {
+char *ltype_name(int val) {
   switch (val) {
   case LVAL_ERR:
     return "Error";
