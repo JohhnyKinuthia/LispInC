@@ -12,6 +12,24 @@
     return err;                                                                \
   }
 
+#define LASSERT_TYPE(func, expected, index, args)                              \
+  if (!(args->cell[index]->type == expected)) {                                \
+    lval *err =                                                                \
+        lerr("Function '%s' passed incorrect type: %s\nExpected QExpressions", \
+             func, enum_to_str(a->cell[0]->type), enum_to_str(expected));      \
+    lval_del(args);                                                            \
+    return err;                                                                \
+  }
+
+#define LASSERT_NUM(func, num, type, args)                                     \
+  if (!(args->count == num)) {                                                 \
+    lval *err = lerr("Function '%s' passed incorrect number of arguments: "    \
+                     "%d\nExpected %d %s",                                     \
+                     func, a->count, num, type);                               \
+    lval_del(args);                                                            \
+    return err;                                                                \
+  }
+
 #define STR_ERR_SIZE 512
 /*if we are compiling on Windows compile these functions*/
 #ifdef _WIN32
@@ -62,31 +80,30 @@ struct lenv {
 
 enum { LVAL_NUM, LVAL_FUN, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR };
 
-char* enum_to_str(int val){
-  switch (val)
-    {
-    case LVAL_ERR:
-      return "Error";
-      break;
-    case LVAL_FUN:
-      return "Function";
-      break;
-    case LVAL_SYM:
-      return "Symbol";
-      break;
-    case LVAL_SEXPR:
-      return "Symbolic Expression";
-      break;
-    case LVAL_QEXPR:
-      return "QExpression";
-      break;
-    case LVAL_NUM:
-      return "Number";
-      break;
-    default:
-      break;
-    }
-    return "Unknown type";
+char *enum_to_str(int val) {
+  switch (val) {
+  case LVAL_ERR:
+    return "Error";
+    break;
+  case LVAL_FUN:
+    return "Function";
+    break;
+  case LVAL_SYM:
+    return "Symbol";
+    break;
+  case LVAL_SEXPR:
+    return "Symbolic Expression";
+    break;
+  case LVAL_QEXPR:
+    return "QExpression";
+    break;
+  case LVAL_NUM:
+    return "Number";
+    break;
+  default:
+    break;
+  }
+  return "Unknown type";
 }
 
 /*Construct a pointer to a new Number lval*/
@@ -380,12 +397,13 @@ int main(int argc, char **argv) {
   // define Polish grammar
 
   /*The symbols for evaluating QExpr are defined below
-   * list: Takes one or more arguments and returns a new Q-Expression containing the arguments 
-   * head: Takes a Q-Expression and returns and Q-Expression with only the first element 
-   * tail: Takes a Q-Expression and returns a Q-Expression with the first element removed 
-   * join: Takes one or more Q-Expressions and returns a Q-Expression of them conjoined together
-   * eval: Takes a Q-Expression and evaluates it as if it were a S-Expression
-   * def: Put a new variable into the environment
+   * list: Takes one or more arguments and returns a new Q-Expression containing
+   * the arguments head: Takes a Q-Expression and returns and Q-Expression with
+   * only the first element tail: Takes a Q-Expression and returns a
+   * Q-Expression with the first element removed join: Takes one or more
+   * Q-Expressions and returns a Q-Expression of them conjoined together eval:
+   * Takes a Q-Expression and evaluates it as if it were a S-Expression def: Put
+   * a new variable into the environment
    *
    * */
   mpc_parser_t *Number = mpc_new("number");
@@ -394,8 +412,7 @@ int main(int argc, char **argv) {
   mpc_parser_t *Qexpr = mpc_new("qexpr");
   mpc_parser_t *Expr = mpc_new("expr");
   mpc_parser_t *Lispy = mpc_new("lispy");
-  mpca_lang(MPCA_LANG_DEFAULT,
-            "						\
+  mpca_lang(MPCA_LANG_DEFAULT, "						\
 			number: /-?[0-9]+/; 				\
 			symbol: /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/;	 \
 			sexpr: '(' <expr>* ')' ;			\
@@ -538,8 +555,7 @@ lval *builtin_mul(lenv *e, lval *a) { return builtin_op(e, a, "*"); }
 lval *builtin_div(lenv *e, lval *a) { return builtin_op(e, a, "/"); }
 
 lval *builtin_def(lenv *e, lval *a) {
-  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-          "Function 'def' passed incorrect type: %s\nExpected QExpressions", enum_to_str (a->cell[0]->type));
+  LASSERT_TYPE("def", LVAL_QEXPR, 0, a);
 
   /* First argument is symbol list */
   lval *syms = a->cell[0];
@@ -565,11 +581,10 @@ lval *builtin_def(lenv *e, lval *a) {
 lval *builtin_head(lenv *e, lval *a) {
 
   /*Check Error Conditions*/
-  LASSERT(a, a->count == 1, "Function 'head' passed to many arguments: %d\nExpected 1 Qexpression", a->count);
+  LASSERT_NUM("tail", 1, "Qexpr", a);
 
   /*Check for valid type(QExp)r*/
-  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-          "Function 'head' passed incorrect type: %s\nExpected QExpressions", enum_to_str (a->cell[0]->type));
+  LASSERT_TYPE("head", LVAL_QEXPR, 0, a);
 
   /*Ensure Qexpr is not empty*/
   LASSERT(a, a->cell[0]->count != 0, "Function 'head' passed {}");
@@ -587,11 +602,10 @@ lval *builtin_head(lenv *e, lval *a) {
 
 lval *builtin_tail(lenv *e, lval *a) {
   /*Check Error Conditions*/
-  LASSERT(a, a->count == 1, "Function 'tail' passed to many arguments: %d\nExpected 1 Qexpression", a->count);
+  LASSERT_NUM("tail", 1, "Qexpr", a);
 
   /*Check for valid type(QExpr*/
-  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-          "Function 'tail' passed incorrect type: %s\nExpected QExpressions", enum_to_str (a->cell[0]->type));
+  LASSERT_TYPE("tail", LVAL_QEXPR, 0, a);
 
   /*Ensure Qexpr is not empty*/
   LASSERT(a, a->cell[0]->count != 0, "Function 'tail' passed {}");
@@ -612,11 +626,10 @@ lval *builtin_list(lenv *e, lval *a) {
 
 lval *builtin_eval(lenv *e, lval *a) {
   /*Check Error Conditions*/
-  LASSERT(a, a->count == 1, "Function 'eval' passed to many arguments: %d\nExpected 1 Qexpression", a->count);
+  LASSERT_NUM("eval", 1, "QExpr", a);
 
   /*Check for valid type(QExpr)*/
-  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-          "Function 'eval' passed incorrect type: %s\nExpected QExpressions", enum_to_str (a->cell[0]->type));
+  LASSERT_TYPE("eval", LVAL_QEXPR, 0, a);
 
   lval *x = lval_take(a, 0);
   x->type = LVAL_SEXPR;
@@ -637,8 +650,7 @@ lval *lval_join(lval *x, lval *y) {
 lval *builtin_join(lenv *e, lval *a) {
   /*Ensure that we only have QExpr*/
   for (int i = 0; i < a->count; ++i) {
-    LASSERT(a->cell[i], a->cell[i]->type == LVAL_QEXPR,
-            "function 'join' passed incorrect type: %s\nExpected QExpressions", enum_to_str(a->cell[i]->type));
+    LASSERT_TYPE("join", LVAL_QEXPR, i, a);
   }
 
   lval *x = lval_pop(a, 0);
