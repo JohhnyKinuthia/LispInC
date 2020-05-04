@@ -1,8 +1,9 @@
+##Lisp interpreter in C
 Lisp Interpreter in the C programming Language.
 
-Based on the online book http://www.buildyourownlisp.com/
+Based on the online book [Build Your Own Lisp](http://www.buildyourownlisp.com/)
 
-#TODO
+####TODO
 Add garbage collector
 Tail Call Optimisation
 Lexical Scoping
